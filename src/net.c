@@ -1,6 +1,6 @@
 /* net.c -- CoAP network interface
  *
- * Copyright (C) 2010--2016 Olaf Bergmann <bergmann@tzi.org>
+ * Copyright (C) 2010--2019 Olaf Bergmann <bergmann@tzi.org> and others
  *
  * This file is part of the CoAP library libcoap. Please see
  * README for terms of use.
@@ -449,7 +449,6 @@ coap_new_context(
 #endif /* not WITH_CONTIKI */
 #ifdef WITH_CONTIKI
   coap_resources_init();
-  coap_memory_init();
 
   c = &the_coap_context;
   initialized = 1;
@@ -2346,6 +2345,7 @@ void coap_startup(void) {
 #elif !defined(_WIN32)
   prng_init(0);
 #endif
+  coap_memory_init();
   coap_dtls_startup();
 }
 
