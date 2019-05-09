@@ -44,6 +44,8 @@
 
 #define RD_ROOT_STR   "rd"
 #define RD_ROOT_SIZE  2
+#define RD_RESOURCE_LOOKUP_STR "rd-lookup-res"
+#define RD_ENDPOINT_LOOKUP_STR "rd-lookup-ep"
 
 #ifndef min
 #define min(a,b) ((a) < (b) ? (a) : (b))
@@ -218,7 +220,7 @@ hnd_delete_resource(coap_context_t  *ctx,
 }
 
 static void
-hnd_get_rd(coap_context_t  *ctx UNUSED_PARAM,
+hnd_205(coap_context_t  *ctx UNUSED_PARAM,
            struct coap_resource_t *resource UNUSED_PARAM,
            coap_session_t *session UNUSED_PARAM,
            coap_pdu_t *request UNUSED_PARAM,
@@ -343,9 +345,10 @@ add_source_address(struct coap_resource_t *resource,
   attr_val.s = (const uint8_t *)buf;
   attr_val.length = n;
   coap_add_attr(resource,
-                coap_make_str_const("A"),
+                coap_make_str_const("A"), // what is "A" attribute?
+                                          // why saved in resource?
                 &attr_val,
-                COAP_ATTR_FLAGS_RELEASE_VALUE);
+                COAP_ATTR_FLAGS_RELEASE_VALUE); // what is this?
 #undef BUFSIZE
 }
 
@@ -383,6 +386,50 @@ make_rd(coap_pdu_t *pdu) {
 }
 
 static void
+hnd_resource_lookup(coap_context_t  *ctx,
+            struct coap_resource_t *resource UNUSED_PARAM,
+            coap_session_t *session,
+            coap_pdu_t *request,
+            coap_binary_t *token UNUSED_PARAM,
+            coap_string_t *query UNUSED_PARAM,
+            coap_pdu_t *response) {
+  rd_t *rd = NULL;
+  unsigned char buf[3];
+
+  HASH_FIND(hh, resources, resource->uri_path->s, resource->uri_path->length, rd);
+
+  response->code = COAP_RESPONSE_CODE(200);
+
+  coap_add_option(response,
+                  COAP_OPTION_CONTENT_TYPE,
+                  coap_encode_var_safe(buf, sizeof(buf),
+                                       COAP_MEDIATYPE_APPLICATION_LINK_FORMAT),
+                                       buf);
+}
+
+static void
+hnd_endpoint_lookup(coap_context_t  *ctx,
+            struct coap_resource_t *resource UNUSED_PARAM,
+            coap_session_t *session,
+            coap_pdu_t *request,
+            coap_binary_t *token UNUSED_PARAM,
+            coap_string_t *query UNUSED_PARAM,
+            coap_pdu_t *response) {
+  rd_t *rd = NULL;
+  unsigned char buf[3];
+
+  HASH_FIND(hh, resources, resource->uri_path->s, resource->uri_path->length, rd);
+
+  response->code = COAP_RESPONSE_CODE(200);
+
+  coap_add_option(response,
+                  COAP_OPTION_CONTENT_TYPE,
+                  coap_encode_var_safe(buf, sizeof(buf),
+                                       COAP_MEDIATYPE_APPLICATION_LINK_FORMAT),
+                                       buf);
+}
+
+static void
 hnd_post_rd(coap_context_t  *ctx,
             struct coap_resource_t *resource UNUSED_PARAM,
             coap_session_t *session,
@@ -411,12 +458,15 @@ hnd_post_rd(coap_context_t  *ctx,
 
   /* store query parameters for later use */
   if (query) {
+    // TODO: query parsing without knowing which values to find beforehand
+    // TODO: what is "h" and "ins" query parameters?
     parse_param((const uint8_t *)"h", 1, query->s, query->length, &h);
     parse_param((const uint8_t *)"ins", 3, query->s, query->length, &ins);
     parse_param((const uint8_t *)"lt", 2, query->s, query->length, &lt);
     parse_param((const uint8_t *)"rt", 2, query->s, query->length, &rt);
   }
 
+  // h is the node name ???
   if (h.length) {   /* client has specified a node name */
     memcpy(loc + loc_size, h.s, min(h.length, LOCSIZE - loc_size - 1));
     loc_size += min(h.length, LOCSIZE - loc_size - 1);
@@ -430,6 +480,7 @@ hnd_post_rd(coap_context_t  *ctx,
 
   } else {      /* generate node identifier */
     loc_size +=
+      // FIXME: 
       snprintf((char *)(loc + loc_size), LOCSIZE - loc_size - 1,
                "%x", request->tid);
 
@@ -460,8 +511,10 @@ hnd_post_rd(coap_context_t  *ctx,
   resource_val.length = loc_size;
   r = coap_resource_init(&resource_val, COAP_RESOURCE_FLAGS_RELEASE_URI);
   coap_register_handler(r, COAP_REQUEST_GET, hnd_get_resource);
+  // FIXME: PUT and DELETE are not allowed on endpoint resource (rt=core.rd-ep??)
   coap_register_handler(r, COAP_REQUEST_PUT, hnd_put_resource);
   coap_register_handler(r, COAP_REQUEST_DELETE, hnd_delete_resource);
+  // TODO: handle POST for update
 
   if (ins.s) {
     buf = (unsigned char *)coap_malloc(ins.length + 2);
@@ -492,6 +545,7 @@ hnd_post_rd(coap_context_t  *ctx,
                     coap_make_str_const("rt"),
                     &attr_val,
                     COAP_ATTR_FLAGS_RELEASE_VALUE);
+      // TOOD: add more attributes to endpoint resources??
     }
   }
 
@@ -537,16 +591,30 @@ static void
 init_resources(coap_context_t *ctx) {
   coap_resource_t *r;
 
+  /* registration interface */
   r = coap_resource_init(coap_make_str_const(RD_ROOT_STR), 0);
-  coap_register_handler(r, COAP_REQUEST_GET, hnd_get_rd);
+  coap_register_handler(r, COAP_REQUEST_GET, hnd_205);     /* default 2.05 response */
   coap_register_handler(r, COAP_REQUEST_POST, hnd_post_rd);
-
-  coap_add_attr(r, coap_make_str_const("ct"), coap_make_str_const("40"), 0);
   coap_add_attr(r, coap_make_str_const("rt"), coap_make_str_const("\"core.rd\""), 0);
-  coap_add_attr(r, coap_make_str_const("ins"), coap_make_str_const("\"default\""), 0);
-
+  coap_add_attr(r, coap_make_str_const("ct"), coap_make_str_const("40"), 0);
+  coap_add_attr(r, coap_make_str_const("ins"), coap_make_str_const("\"default\""), 0); // what for?
   coap_add_resource(ctx, r);
 
+  /* resource lookup interface */
+  r = coap_resource_init(coap_make_str_const(RD_RESOURCE_LOOKUP_STR), 0);
+  coap_register_handler(r, COAP_REQUEST_GET, hnd_resource_lookup);
+  coap_register_handler(r, COAP_REQUEST_POST, hnd_205);     /* default 2.05 response */
+  coap_add_attr(r, coap_make_str_const("rt"), coap_make_str_const("\"core.rd-lookup-res\""), 0);
+  coap_add_attr(r, coap_make_str_const("ct"), coap_make_str_const("40"), 0);
+  coap_add_resource(ctx, r);
+
+  /* endpoint lookup interface */
+  r = coap_resource_init(coap_make_str_const(RD_ENDPOINT_LOOKUP_STR), 0);
+  coap_register_handler(r, COAP_REQUEST_GET, hnd_endpoint_lookup);
+  coap_register_handler(r, COAP_REQUEST_POST, hnd_205);     /* default 2.05 response */
+  coap_add_attr(r, coap_make_str_const("rt"), coap_make_str_const("\"core.rd-lookup-ep\""), 0);
+  coap_add_attr(r, coap_make_str_const("ct"), coap_make_str_const("40"), 0);
+  coap_add_resource(ctx, r);
 }
 
 static void
