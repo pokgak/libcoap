@@ -925,7 +925,7 @@ coap_network_send(coap_socket_t *sock, const coap_session_t *session, const uint
     bytes_written = sendto(sock->fd, data, datalen, 0, &session->remote_addr.addr.sa, session->remote_addr.size);
 #endif /* ! HAVE_STRUCT_CMSGHDR */
 #endif
-#elif defined(WITH_CONTIKI)
+#if defined(WITH_CONTIKI)
     /* FIXME: untested */
     /* FIXME: is there a way to check if send was successful? */
     (void)datalen;
